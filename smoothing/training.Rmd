@@ -1,0 +1,283 @@
+---
+title: "Smoothing Model Building"
+author: "Anusha Raisinghani"
+output: 
+    pdf_document
+---
+
+* UW ID: 20823986
+* Kaggle public score: 0.13236
+* Kaggle private score: 0.13801
+<!-- The number of submissions you made to Kaggle -->
+* Kaggle submission count/times: 30
+
+
+# Summary
+To obtain the final model, the following steps were applied:
+
+* Preprocessing: This step involved creating some new variables and converting the existing variables into a more desirable form.
+* Data Analysis: This step involved plotting the predictors against the response variable to better guess the relationship between the two. Additionally, some weird data points were identified and fixed in this step.
+* Imputing Missing Data: The train and test data had missing values for some predictors such as `ayb`, `yr_rmdl`, `kitchens`, `stories` and `quadrant` which were imputed by intuition as well as by identifying the trends in those predictors.
+* Initial Model Building: Then, the initial model was constructed.
+* Iterative Model Building: Once the initial model was obtained, based on the residual plots a logarithmic transformation was applied to the response variable. This helped make the residual plots randomly distributed. After transformation, the dimension of the basis used to represent some of the smooth terms (`k`) (such as for `latitude`, `longitude`, `saledate`, `gba`, `bedrm` and `yr_since_rmdl`) was modified, which helped minimise the GCV. Finally, interaction terms were added to further minimise the GCV and obtain the final model.
+
+## Preprocessing
+The following steps were applied during preprocessing:
+
+* `heat`: This variable was converted to a categorical variable.
+* `ac`: This variable was converted to a categorical variable.
+* `style`: This variable was converted to a categorical variable.
+* `grade`: This variable was converted to a categorical variable.
+* `cndtn`: This variable was converted to a categorical variable.
+* `saledate`: This variable was converted to a numerical value representing the number of days since 1970/01/01.
+* `extwall`: This variable was converted to a categorical variable.
+* `roof`: This variable was converted to a categorical variable.
+* `intwall`: This variable was converted to a categorical variable.
+* `nbhd`: This variable was converted to a categorical variable.
+* `ward`: This variable was converted to a categorical variable.
+* `quadrant`: This variable was converted to a categorical variable.
+
+### Transformation
+* `price`: I took the logarithm of the response variate price.
+
+### New Variables
+* `yr_since_rmdl`: Difference in years between `saledate` and `yr_since_rmdl`
+* `yr_since_imprv`: Difference in years between `saledate` and `eyb`
+* `yr_since_b`: Difference in years between `saledate` and `ayb`
+* `ysb1`: Boolean variable for whether the `yr_since_b` > 0 
+* `ysb2`: Boolean variable for whether the `yr_since_b` > 125
+
+### Other Preprocessing
+Upon plotting the `bathrm` vs the `price`, it was found that there was a data point with 0 bathrooms. This data point had "No Data" listed for heat, 0 rooms, 0 bedrooms, etc. Hence, this data point was removed from the dataset.
+Similarly, for stories, there was an observation with 25 stories. The style for this house was "2.5 Story Fin" and hence the 25 was likely a typo. This was changed to 2.5.
+
+### Missing data handling
+* `ayb`: Upon plotting the distribution for `eyb` - `ayb`, it was observed that the difference follows a normal distribution, Hence, the missing values were imputed by taking the difference between `eyb` for those data points and the mean of `eyb`-`ayb`.
+* `yr_since_rmdl`: A missing `yr_rmdl` represents the fact that the house was never remodeled. Hence, the `yr_since_rmdl` was imputed by adding 2 to the maximum of the `yr_since_rmdl`.
+* `stories`: This variable was imputed with the mean of the stories for houses with the same style.
+* `kitchens`: This variable was imputed with the value of `rooms`-(`bedrm`+`bathrm`).
+* `quadrant`: Upon plotting the latitude and longitude grouped by the quadrant, it seemed that the quadrants formed clusters. Hence, quadrant was imputed by using the quadrant of the houses in the same region (by latitude and longitude).
+
+## Model Building
+
+Main package used: `mgcv`
+
+## Final Model
+<!-- formula in your final fitted function  -->
+* The final model is `price` $\sim$  `ti(saledate, longitude) + ti(saledate, fireplaces) + ti(landarea, longitude) + s(bathrm) + s(hf_bathrm, k=5) + heat + ac + s(rooms) + s(bedrm, k=13) + stories + style + s(saledate, k=25) + s(gba,k=20) + grade + cndtn + roof + intwall + kitchens + s(fireplaces) + s(landarea) + s(latitude, k=20) + s(longitude, k=20) + nbhd + ward + quadrant + ysb1 + ysb2 + s(yr_since_rmdl, k=30) + s(yr_since_imprv)`
+
+<!-- Details -->
+<!-- R code starts, please present both code and output. -->
+<!-- Provide descriptions and explanations to justify your operations -->
+<!-- Be brief and to the point. -->
+<!-- Only details lead to your final model are needed. If you tried other appoaches/models, you can mention them, no details needed for abandoned attempts. -->
+
+
+
+# 1.Preprocessing
+
+```{r, echo=TRUE, results='hide'}
+library(tidyverse)
+library(mgcv)
+```
+
+## 1.1 Loading data
+```{r,echo=TRUE}
+load("smooth.Rdata")
+
+dtrain$heat <- as.factor(dtrain$heat)
+dtrain$ac <- as.factor(dtrain$ac)
+dtrain$saledate <- as.numeric(as.Date(dtrain$saledate))
+dtrain$style <- as.factor(dtrain$style)
+dtrain$grade <- as.factor(dtrain$grade)
+dtrain$cndtn <- as.factor(dtrain$cndtn)
+dtrain$extwall <- as.factor(dtrain$extwall)
+dtrain$roof <- as.factor(dtrain$roof)
+dtrain$intwall <- as.factor(dtrain$intwall)
+dtrain$nbhd <- as.factor(dtrain$nbhd)
+dtrain$ward <- as.factor(dtrain$ward)
+dtrain$quadrant <- as.factor(dtrain$quadrant)
+
+dtrain$yr_since_rmdl <- 1970+dtrain$saledate/365.25-dtrain$yr_rmdl
+dtrain$yr_since_imprv <- 1970+dtrain$saledate/365.25-dtrain$eyb
+
+ggplot(dtrain, aes(x = bathrm, y = price)) +
+  geom_point()
+# There's a house with 0 bathrooms. Upon close inspection of this data point,
+# we see weird data, there's "No Data" for heat, no rooms, and ayb > eyb.
+# We get rid of this data point:
+dtrain <- dtrain[dtrain$bathrm > 0,]
+ggplot(dtrain[!is.na(dtrain$stories),], aes(x = stories, y = price)) +
+  geom_point()
+# This is likely a typo
+dtrain[249, 'stories'] <- 2.5
+```
+
+## 1.2 Missing data handling
+### For `ayb`:
+Upon plotting the distribution of `eyb` - `ayb`, we get a bell-shaped curve indicating a normal distribution. Hence, the `ayb` is imputed by using the mean of `eyb`-`ayb`.
+```{r,echo=TRUE}
+# This follows a normal distribution
+ggplot(dtrain[!is.na(dtrain$ayb),], aes(eyb - ayb)) +
+  geom_histogram(color = "#000000", fill = "#0099F8", bins=35) +
+  ggtitle("Variable distribution") +
+  theme_classic() +
+  theme(plot.title = element_text(size = 18))
+# We do mean imputation
+mean_ayb_eyb <- round(mean(dtrain$eyb - dtrain$ayb, na.rm=TRUE))
+dtrain[is.na(dtrain$ayb),'ayb'] <- dtrain[is.na(dtrain$ayb),'eyb'] - mean_ayb_eyb
+
+# Create yr_since_b variable
+dtrain$yr_since_b <- 1970+dtrain$saledate/365.25-dtrain$ayb
+```
+
+### For `yr_rmdl` (`yr_since_rmdl`)
+We are using the `yr_since_rmdl` in our model, and it has missing values due to missing values in `yr_rmdl`. These houses were never remodeled and so for imputing the `yr_since_rmdl`, the 2 plus the maximum of the `yr_since_rmdl` is taken.
+```{r, echo=TRUE}
+impute_value_rmdl <- max(dtrain$yr_since_rmdl, na.rm=TRUE) + 2
+dtrain[is.na(dtrain$yr_since_rmdl), 'yr_since_rmdl'] <- impute_value_rmdl
+```
+
+### For `stories`
+This was missing for 4 observations. The styles of these houses are listed as "2 Story" and "2.5 Story". Hence, these houses were imputed by taking the mean of the stories of "2 Story" and "2.5 Story" style houses.
+```{r, echo=TRUE}
+dtrain[is.na(dtrain$stories), ]
+# Get the mean of stories grouped by style
+tapply(dtrain$stories, dtrain$style, mean, na.rm=TRUE)
+# Add the mean of stories as a column (avg_stories) to dtrain
+dtrain <- dtrain %>%
+  group_by(style) %>%
+  mutate(avg_stories = mean(stories, na.rm = TRUE))
+# Set the missing stories to the mean grouped by style
+dtrain <- dtrain %>%
+  mutate(stories = ifelse(is.na(stories), avg_stories, stories))
+# Drop the avg_stories column
+dtrain <- dtrain %>%
+  select(-avg_stories)
+```
+
+### For `kitchens`
+
+```{r, echo=TRUE}
+dtrain[which(is.na(dtrain$kitchens)), 'kitchens'] <-
+  dtrain[which(is.na(dtrain$kitchens)), 'rooms'] - (dtrain[which(is.na(dtrain$kitchens)), 'bedrm'] 
+                                                    + dtrain[which(is.na(dtrain$kitchens)), 'bathrm'])
+```
+
+### For `quadrant`
+
+When we plot the graph of latitude and longitude grouped by quadrant, we see clear distinctions between each quadrant. So the quadrant is imputed on the basis of the latitude and longitude of the house.
+```{r, echo=TRUE}
+ggplot(dtrain, aes(x = longitude, y = latitude, color = quadrant)) +
+  geom_point() + geom_vline(xintercept=-74.151) + geom_hline(yintercept = 40.696)
+dtrain[(dtrain$longitude < -74.151) & (dtrain$latitude > 40.696) & is.na(dtrain$quadrant), 'quadrant'] <- 'NW'
+dtrain[(dtrain$longitude > -74.151) & (dtrain$latitude > 40.696) & is.na(dtrain$quadrant), 'quadrant'] <- 'NE'
+dtrain[(dtrain$longitude > -74.151) & (dtrain$latitude < 40.696) & is.na(dtrain$quadrant), 'quadrant'] <- 'SE'
+```
+
+# 2. Model building
+```{r,echo=TRUE}
+gam1 <- gam(price ~ s(bathrm) + s(hf_bathrm, k=5) + heat + ac + s(rooms) + s(bedrm)
+            + s(stories) + s(saledate) + s(gba) + style + grade + cndtn + extwall + roof
+            + intwall + s(kitchens, k=4) + s(fireplaces) + s(landarea) + s(latitude)
+            + s(longitude) + nbhd + ward + quadrant + s(yr_since_b) + s(yr_since_rmdl)
+            + s(yr_since_imprv), data=dtrain)
+gam.check(gam1) 
+```
+
+From the Resids vs linear pred. plot, we can see some pattern and so we transform the response variate to the logarithm and fit the model again.
+
+```{r, echo=TRUE}
+dtrain$price <- log(dtrain$price)
+gam2 <- gam(price ~ s(bathrm) + s(hf_bathrm, k=5) + heat + ac + s(rooms) + s(bedrm)
+            + s(stories) + s(saledate) + s(gba) + style + grade + cndtn + extwall + roof
+            + intwall + s(kitchens, k=4) + s(fireplaces) + s(landarea) + s(latitude)
+            + s(longitude) + nbhd + ward + quadrant + s(yr_since_b) + s(yr_since_rmdl)
+            + s(yr_since_imprv), data=dtrain)
+gam.check(gam2)
+# Check the GCV
+gam2$gcv.ubre
+```
+
+```{r, echo=TRUE}
+ggplot(dtrain, aes(x = yr_since_b, y = residuals(gam2))) +
+  geom_point()
+```
+There's a pattern in `yr_since_b` and so we separate that variable into `ysb1` and `ysb2`.
+
+```{r, echo=TRUE}
+dtrain$ysb1 <- dtrain$yr_since_b > 0
+dtrain$ysb2 <- dtrain$yr_since_b > 125
+gam3 <- gam(price ~ s(bathrm) + s(hf_bathrm, k=5) + heat + ac + s(rooms) + s(bedrm)
+            + s(stories) + s(saledate) + s(gba) + style + grade + cndtn + extwall + roof
+            + intwall + s(kitchens, k=4) + s(fireplaces) + s(landarea) + s(latitude)
+            + s(longitude) + nbhd + ward + quadrant + ysb1 + ysb2 + s(yr_since_rmdl)
+            + s(yr_since_imprv), data=dtrain)
+gam.check(gam3)
+# Check the GCV
+gam3$gcv.ubre
+```
+
+This helps reduce the GCV from `r gam2$gcv.ubre` to `r gam3$gcv.ubre`
+
+Next, from the `gam.check()` output, we can see that the `k` for `yr_since_rmdl` needs to be increased. This helps reduce the GCV as well.
+```{r, echo=TRUE}
+gam4 <- gam(price ~ s(bathrm) + s(hf_bathrm, k=5) + heat + ac + s(rooms) + s(bedrm)
+            + s(stories) + s(saledate) + s(gba) + style + grade + cndtn + extwall + roof
+            + intwall + s(kitchens, k=4) + s(fireplaces) + s(landarea) + s(latitude)
+            + s(longitude) + nbhd + ward + quadrant + ysb1 + ysb2 + s(yr_since_rmdl, k=30) 
+            + s(yr_since_imprv), data=dtrain)
+gam.check(gam4)
+# Check the GCV
+gam4$gcv.ubre
+```
+Further the `k'` values are quite close to the edf for `bedrm`, `saledate`, `longitude`, `latitude` and `gba` and so these are increased as well. This helps further reduce the GCV.
+
+```{r, echo=TRUE}
+gam5 <- gam(price ~ s(bathrm) + s(hf_bathrm, k=5) + heat + ac + s(rooms) + s(bedrm, k=13)
+            + s(stories) + style + s(saledate, k=25) + s(gba,k=20) + grade + cndtn
+            + extwall + roof + intwall + s(kitchens, k=4) + s(fireplaces) + s(landarea)
+            + s(latitude, k=20) + s(longitude, k=20) + nbhd + ward + quadrant + ysb1
+            + ysb2 + s(yr_since_rmdl, k=30) + s(yr_since_imprv), data=dtrain)
+gam.check(gam5)
+# Check the GCV
+gam5$gcv.ubre
+```
+Next, we can see that the edf for kitchens and stories is 1, indicating a linear fit. Hence, these are added as linear terms:
+```{r, echo=TRUE}
+gam6 <- gam(price ~ s(bathrm) + s(hf_bathrm, k=5) + heat + ac + s(rooms) + s(bedrm, k=13)
+            + stories + style + s(saledate, k=25) + s(gba,k=20) + grade + cndtn + extwall
+            + roof + intwall + kitchens + s(fireplaces) + s(landarea) + s(latitude, k=20)
+            + s(longitude, k=20) + nbhd + ward + quadrant + ysb1 + ysb2
+            + s(yr_since_rmdl, k=30) + s(yr_since_imprv), data=dtrain)
+gam.check(gam6)
+summary(gam6)
+gam6$gcv.ubre
+```
+Next, we can see from the summary output that the factors for extwall are not very significant. So, we drop that from the model and notice a drop in the GCV.
+
+```{r, echo=TRUE}
+gam7 <- gam(price ~ s(bathrm) + s(hf_bathrm, k=5) + heat + ac + s(rooms) + s(bedrm, k=13)
+            + stories + style + s(saledate, k=25) + s(gba,k=20) + grade + cndtn + roof
+            + intwall + kitchens + s(fireplaces) + s(landarea) + s(latitude, k=20)
+            + s(longitude, k=20) + nbhd + ward + quadrant + ysb1 + ysb2
+            + s(yr_since_rmdl, k=30) + s(yr_since_imprv), data=dtrain)
+
+gam.check(gam7)
+gam7$gcv.ubre
+```
+Finally, we will explore some interaction terms. The interaction between (saledate, longitude), (saledate, fireplaces) and (landarea, longitude) help decrease the GCV by the greatest amount. Hence, these are added to the model and we obtain our final model.
+
+```{r, echo=TRUE}
+fit <- gam(price ~ ti(saledate, longitude) + ti(saledate, fireplaces)
+           + ti(landarea, longitude) + s(bathrm) + s(hf_bathrm, k=5) + heat
+           + ac + s(rooms) + s(bedrm, k=13) + stories + style + s(saledate, k=25)
+           + s(gba,k=20) + grade + cndtn + roof + intwall + kitchens + s(fireplaces)
+           + s(landarea) + s(latitude, k=20) + s(longitude, k=20) + nbhd + ward
+           + quadrant + ysb1 + ysb2 + s(yr_since_rmdl, k=30)
+           + s(yr_since_imprv), data=dtrain)
+fit$gcv.ubre
+```
+
+
+
