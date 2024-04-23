@@ -1,0 +1,206 @@
+---
+title: "Random Forests Prediction"
+author: "Anusha Raisinghani"
+output: 
+    pdf_document
+---
+
+* UW ID: 20823986
+* Kaggle public score: 0.20693
+* Kaggle submission count/times: 16
+<!-- The number of submissions you made to Kaggle -->
+
+
+# Summary
+To obtain the final model, the following steps were applied:
+
+* Preprocessing: This step involved creating some new variables and converting the existing variables into a more desirable form.
+* Data Analysis: This step involved plotting the predictors against the response variable to better guess the relationship between the two. Additionally, some weird data points were identified and fixed in this step.
+* Imputing Missing Data: The train and test data had missing values for some predictors such as `ayb`, `yr_rmdl`, `kitchens`, `stories` and `quadrant` which were imputed by intuition as well as by identifying the trends in those predictors.
+* Model Building: To build the model, the `ranger` function in the `ranger` library was used. To improve the accuracy of the model, the parameters, `mtry`, `min.node.size` and `split.rule` was tuned using grid search. The best model was selected depending on which model had the highest $R^2$ value.
+
+## Preprocessing
+The following steps were applied during preprocessing:
+
+* `heat`: This variable was converted to a categorical variable.
+* `ac`: This variable was converted to a categorical variable.
+* `style`: This variable was converted to a categorical variable.
+* `grade`: This variable was converted to a categorical variable.
+* `cndtn`: This variable was converted to a categorical variable.
+* `saledate`: This variable was converted to a numerical value representing the number of days since 1970/01/01.
+* `extwall`: This variable was converted to a categorical variable.
+* `roof`: This variable was converted to a categorical variable.
+* `intwall`: This variable was converted to a categorical variable.
+* `nbhd`: This variable was converted to a categorical variable.
+* `ward`: This variable was converted to a categorical variable.
+* `quadrant`: This variable was converted to a categorical variable.
+
+
+### Transformation (if any)
+* `price`: I took the logarithm of the response variate price.
+
+### New Variables
+* `yr_since_rmdl`: Difference in years between `saledate` and `yr_since_rmdl`
+* `yr_since_imprv`: Difference in years between `saledate` and `eyb`
+* `yr_since_b`: Difference in years between `saledate` and `ayb`
+* `ysb1`: Boolean variable for whether the `yr_since_b` > 0 
+* `ysb2`: Boolean variable for whether the `yr_since_b` > 125
+
+### Other Preprocessing
+Upon plotting the `bathrm` vs the `price`, it was found that there was a data point with 0 bathrooms. This data point had "No Data" listed for heat, 0 rooms, 0 bedrooms, etc. Hence, this data point was removed from the dataset.
+Similarly, for stories, there was an observation with 25 stories. The style for this house was "2.5 Story Fin" and hence the 25 was likely a typo. This was changed to 2.5.
+Lastly, there was a datapoint with 0 rooms, 0 bedrooms, 1 bathroom and 1 kitchen. This data point was dropped as well.
+
+## Model Building/Tuning
+
+Main package used: `ranger`
+
+Parameters tuned and their optimal values:
+
+* mtry: 13
+* min.node.size: 1
+* splitrule: 'variance'
+
+
+
+# 1.Preprocessing
+
+## 1.1 Loading data
+```{r, echo=TRUE, results='hide'}
+library(ranger)
+library(tidyverse)
+```
+
+## 1.1 Loading data
+```{r,echo=TRUE}
+load('RF.Rdata')
+
+summary(dtrain)
+# CONVERTING CATEGORICAL VARIABLES TO FACTORS
+dtrain$heat <- as.factor(dtrain$heat)
+dtrain$ac <- as.factor(dtrain$ac)
+dtrain$saledate <- as.numeric(as.Date(dtrain$saledate))
+dtrain$style <- as.factor(dtrain$style)
+dtrain$grade <- as.factor(dtrain$grade)
+dtrain$cndtn <- as.factor(dtrain$cndtn)
+dtrain$extwall <- as.factor(dtrain$extwall)
+dtrain$roof <- as.factor(dtrain$roof)
+dtrain$intwall <- as.factor(dtrain$intwall)
+dtrain$nbhd <- as.factor(dtrain$nbhd)
+dtrain$ward <- as.factor(dtrain$ward)
+dtrain$quadrant <- as.factor(dtrain$quadrant)
+dtrain$price <- log(dtrain$price)
+# CREATING NEW VARIABLES
+dtrain$yr_since_rmdl <- 1970+dtrain$saledate/365.25-dtrain$yr_rmdl
+dtrain$yr_since_imprv <- 1970+dtrain$saledate/365.25-dtrain$eyb
+
+summary(dtrain)
+ggplot(dtrain, aes(x = bathrm, y = price)) +
+  geom_point()
+# There's a house with 0 bathrooms. Upon close inspection of this data point,
+# we see weird data, there's "No Data" for heat, no rooms, and ayb > eyb.
+# We get rid of this data point:
+dtrain <- dtrain[dtrain$bathrm > 0,]
+
+plot(dtrain$stories, dtrain$price)
+# This is prolly a typo
+dtrain[296, 'stories'] <- 2.5
+
+plot(dtrain$rooms, dtrain$price)
+# This house has 0 rooms, 0 bedrooms, 1 bathrm and 1 kitchen, maybe drop it?
+dtrain <- dtrain[dtrain$rooms > 0,]
+```
+
+## 1.2 Missing data handling
+### For `ayb`:
+Upon plotting the distribution of `eyb` - `ayb`, we get a bell-shaped curve indicating a normal distribution. Hence, the `ayb` is imputed by using the mean of `eyb`-`ayb`.
+```{r,echo=TRUE}
+# This follows a normal distribution
+ggplot(dtrain[!is.na(dtrain$ayb),], aes(eyb - ayb)) +
+  geom_histogram(color = "#000000", fill = "#0099F8", bins=35) +
+  ggtitle("Variable distribution") +
+  theme_classic() +
+  theme(plot.title = element_text(size = 18))
+# We do mean imputation
+mean_ayb_eyb <- round(mean(dtrain$eyb - dtrain$ayb, na.rm=TRUE))
+dtrain[is.na(dtrain$ayb),'ayb'] <- dtrain[is.na(dtrain$ayb),'eyb'] - mean_ayb_eyb
+
+# Create yr_since_b variable
+dtrain$yr_since_b <- 1970+dtrain$saledate/365.25-dtrain$ayb
+```
+
+### For `yr_rmdl` (`yr_since_rmdl`)
+We are using the `yr_since_rmdl` in our model, and it has missing values due to missing values in `yr_rmdl`. These houses were never remodeled and so for imputing the `yr_since_rmdl`, the 2 plus the maximum of the `yr_since_rmdl` is taken.
+```{r, echo=TRUE}
+impute_value_rmdl <- max(dtrain$yr_since_rmdl, na.rm=TRUE) + 2
+dtrain[is.na(dtrain$yr_since_rmdl), 'yr_since_rmdl'] <- impute_value_rmdl
+```
+
+### For `stories`
+This was missing for 4 observations. The styles of these houses are listed as "2 Story" and "2.5 Story". Hence, these houses were imputed by taking the mean of the stories of "2 Story" and "2.5 Story" style houses.
+```{r, echo=TRUE}
+dtrain[is.na(dtrain$stories), ]
+# Get the mean of stories grouped by style
+tapply(dtrain$stories, dtrain$style, mean, na.rm=TRUE)
+# Add the mean of stories as a column (avg_stories) to dtrain
+dtrain <- dtrain %>%
+  group_by(style) %>%
+  mutate(avg_stories = mean(stories, na.rm = TRUE))
+# Set the missing stories to the mean grouped by style
+dtrain <- dtrain %>%
+  mutate(stories = ifelse(is.na(stories), avg_stories, stories))
+# Drop the avg_stories column
+dtrain <- dtrain %>%
+  select(-avg_stories)
+```
+
+### For `kitchens`
+
+```{r, echo=TRUE}
+dtrain[which(is.na(dtrain$kitchens)), 'kitchens'] <-
+  dtrain[which(is.na(dtrain$kitchens)), 'rooms'] - (dtrain[which(is.na(dtrain$kitchens)), 'bedrm'] 
+                                                    + dtrain[which(is.na(dtrain$kitchens)), 'bathrm'])
+```
+
+### For `quadrant`
+
+When we plot the graph of latitude and longitude grouped by quadrant, we see clear distinctions between each quadrant. So the quadrant is imputed on the basis of the latitude and longitude of the house.
+```{r, echo=TRUE}
+ggplot(dtrain, aes(x = longitude, y = latitude, color = quadrant)) +
+  geom_point() + geom_vline(xintercept=-74.151) + geom_hline(yintercept = 40.696)
+dtrain[(dtrain$longitude < -74.151) & (dtrain$latitude > 40.696) & is.na(dtrain$quadrant), 'quadrant'] <- 'NW'
+dtrain[(dtrain$longitude > -74.151) & (dtrain$latitude > 40.696) & is.na(dtrain$quadrant), 'quadrant'] <- 'NE'
+dtrain[(dtrain$longitude > -74.151) & (dtrain$latitude < 40.696) & is.na(dtrain$quadrant), 'quadrant'] <- 'SE'
+```
+
+# 2. Model building
+
+For model building, the `ranger` function in the `ranger` library was used. For this, the parameters tuned were `mtry`, `min.node.size` and `split.rule` using grid search.
+
+```{r,echo=TRUE}
+hyper_grid_expanded <- expand.grid(
+  mtry = seq(1, 26, by=1),
+  nodesize = seq(1, 20, by = 1),
+  splitrule = c("variance", "extratrees", "maxstat")
+)
+
+for (i in 1:nrow(hyper_grid_expanded)) {
+  price.bag <- ranger(price ~ bathrm + hf_bathrm + heat + ac + rooms + bedrm
+                      + stories + saledate + gba + style + grade + cndtn + extwall +
+                        roof + intwall + kitchens + fireplaces + landarea + latitude +
+                        longitude + nbhd + ward + quadrant + yr_since_rmdl + yr_since_imprv
+                      + yr_since_b,
+                      data = dtrain, mtry = hyper_grid_expanded$mtry[i], 
+                      min.node.size=hyper_grid_expanded$nodesize[i]
+                      , splitrule = hyper_grid_expanded$splitrule[i], seed=20823986)
+  hyper_grid_expanded$rsq[i] <- price.bag$r.squared
+}
+```
+
+After tuning, the model with the highest value for $R^2$ was selected.
+
+```{r,echo=TRUE}
+hyper_grid_expanded %>%
+  arrange(rsq) %>%
+  tail(10)
+```
