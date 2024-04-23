@@ -1,0 +1,27 @@
+price: response
+bathrm: # bathrooms
+hf_bathrm: # half bathrooms
+heat: heating
+ac: air conditioning
+rooms: # rooms
+bedrm: # bedrooms
+ayb: The earliest time the main portion of the building was built
+yr_rmdl: Year structure was remodelled
+eyb: The year an improvement was built 
+stories: # stories in primary dwelling
+saledate: Date of sale
+gba: Gross building area in square feet
+style
+grade
+cndtn: Condition
+extwall: Exterior wall
+roof: Roof type
+intwall: Interior wall
+kitchens: # kitchens
+fireplaces: # fireplaces
+landarea: Land area of property in square feet
+latitude
+longitude
+nbhd: Neighborhood ID
+ward: Ward ID
+quadrant

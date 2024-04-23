@@ -1,0 +1,65 @@
+---
+title: "Smoothing Model Building"
+author: "Donald Duck"
+output: 
+    pdf_document
+---
+
+* UW ID: 20654321
+* Kaggle public score: ???
+* Kaggle private score: ???
+<!-- The number of submissions you made to Kaggle -->
+* Kaggle submission count/times: ??
+
+Important: follow the structure of the document and summarize important handlings in the summary section. The structure here is kept at a minimum, feel free if you have more subsections and details to add.
+
+# Summary
+
+## Preprocessing
+
+### Transformation (if any, delete if none)
+* price: I squared the response variate price.
+
+### New Variables (if any, delete if none)
+<!-- List all variables/predictors added to dtrain and dtest  -->
+* isGood: indicator of whether the condition is "Good".
+
+
+### Missing data handling
+<!-- There are missing values in some variables, need to do something -->
+* yr_rmdl: replace the missing values in yr_rmdl with median.
+
+## Model Building
+
+Main package used: `magicSpline`
+
+Forward selection and adding terms using thin plate spline...
+
+## Final Model
+<!-- formula in your final fitted function  -->
+* The final model is $price \sim$ fireplaces + isGood
+
+<!-- Details -->
+<!-- R code starts, please present both code and output. -->
+<!-- Provide descriptions and explanations to justify your operations -->
+<!-- Be brief and to the point. -->
+<!-- Only details lead to your final model are needed. If you tried other appoaches/models, you can mention them, no details needed for abandoned attempts. -->
+
+
+
+# 1.Preprocessing
+
+## 1.1 Loading data
+```{r,echo=TRUE}
+load("smooth.Rdata")
+```
+
+## 1.2 Missing data handling
+```{r,echo=TRUE}
+```
+
+# 2. Model building
+```{r,echo=TRUE}
+# to add a term, or not, that is the question
+```
+
